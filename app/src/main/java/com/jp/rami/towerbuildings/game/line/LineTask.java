@@ -9,11 +9,15 @@ import android.graphics.Rect;
 import com.jp.rami.towerbuildings.R;
 import com.jp.rami.towerbuildings.game.GameConstants.DEFAULT_VALUE;
 import com.jp.rami.towerbuildings.game.GameTask;
-import com.jp.rami.towerbuildings.game.line.Line.STATE;
+import com.jp.rami.towerbuildings.game.line.Line.State;
+
+import java.util.ArrayList;
+import java.util.Collections;
 
 import static com.jp.rami.towerbuildings.game.SizeConstants.BLOCK_SIZE;
 import static com.jp.rami.towerbuildings.game.SizeConstants.CONTROL_TOP;
 import static com.jp.rami.towerbuildings.game.SizeConstants.GAME_BOTTOM;
+import static com.jp.rami.towerbuildings.game.SizeConstants.GAME_HEIGHT;
 import static com.jp.rami.towerbuildings.game.SizeConstants.GAME_LEFT;
 import static com.jp.rami.towerbuildings.game.SizeConstants.GAME_RIGHT;
 import static com.jp.rami.towerbuildings.game.SizeConstants.GAME_TOP;
@@ -25,13 +29,10 @@ import static com.jp.rami.towerbuildings.game.SizeConstants.PLUS_RIGHT;
 public class LineTask extends GameTask {
 
     /** ライン */
-    public Line[] mLines = new Line[DEFAULT_VALUE.LINE_COUNT + 1];
+    public ArrayList<Line> mLines = new ArrayList<>();
 
     /** 落下中のライン */
     private int mCurrentLineIndex = 0;
-
-    /** 表示中のライン数 */
-    private int mDisplayLineCount = 0;
 
     /** ブロックの画像 */
     private Bitmap[] mBlocks = new Bitmap[DEFAULT_VALUE.BLOCK_NUMBER];
@@ -40,11 +41,11 @@ public class LineTask extends GameTask {
     private ResultCount mResultCount = new ResultCount();
 
     public LineTask(Resources resources) {
-        for (int i = 0; i < mLines.length; i++) {
+        for (int i = 0; i <= DEFAULT_VALUE.LINE_COUNT; i++) {
             // [画面に表示するライン数 + 1] のラインを生成
-            mLines[i] = new Line(i);
+            mLines.add(new Line());
         }
-        mLines[0].setStatus(STATE.MOVE);
+        mLines.get(0).status = State.PREPARE;
         rect = new Rect(GAME_LEFT, GAME_TOP, GAME_RIGHT, GAME_BOTTOM);
         BitmapFactory.Options opt = new BitmapFactory.Options();
         opt.inScaled = false;
@@ -68,25 +69,7 @@ public class LineTask extends GameTask {
             motionEvent = null;
         }
 
-        for (int i = 0; i < mLines.length; i++) {
-            switch (mLines[i].update()) {
-                case NONE:
-//                    getBeforeLine(i).setStatus(STATE.MOVE);
-                    break;
-                case MOVE:
-                    break;
-                case FIX:
-                    getNextLine(i).setStatus(STATE.MOVE);
-                    Line before = getBeforeLine(i);
-                    if (before.getStatus() != STATE.NONE) {
-                        mLines[i].setStatus(STATE.SCROLL);
-                        before.setStatus(STATE.SCROLL);
-                    }
-                    break;
-                case SCROLL:
-                    break;
-            }
-        }
+        updateLine();
 
         // 総和変動数が表示中の場合
         if (mResultCount.isDraw) {
@@ -132,36 +115,87 @@ public class LineTask extends GameTask {
     }
 
     /**
+     * ラインを更新する
+     */
+    private void updateLine() {
+        boolean finished = false;
+        for (int i = 0; i < mLines.size(); i++) {
+            Line line = mLines.get(i);
+            int fixY = GAME_HEIGHT - ((i + 1) * BLOCK_SIZE);
+            int nextFixY = fixY + BLOCK_SIZE;
+
+            line.update();
+            switch (line.status) {
+                case NONE:
+                    break;
+                case PREPARE:
+                    mCurrentLineIndex = i;
+                    if (line.posY < fixY) {
+                        continue;
+                    }
+                    line.posY = fixY;
+                    mLines.get(i + 1).status = State.PREPARE;
+                    if (i == 0) {
+                        line.status = State.FIX;
+                        continue;
+                    }
+                    for (int j = 0; j <= i; j++) {
+                        mLines.get(j).status = State.SCROLL;
+                    }
+                    break;
+                case WAIT:
+                    break;
+                case FALL:
+                    if (line.posY < fixY) {
+                        continue;
+                    }
+                    line.posY = fixY;
+                    mLines.get(i + 1).status = State.PREPARE;
+                    calcResultCount();
+                    if (i == 0) {
+                        line.status = State.FIX;
+                        continue;
+                    }
+                    for (int j = 0; j <= i; j++) {
+                        mLines.get(j).status = State.SCROLL;
+                    }
+                    break;
+                case FIX:
+                    break;
+                case SCROLL:
+                    if (line.posY < nextFixY) {
+                        continue;
+                    }
+                    if (line.posY < GAME_BOTTOM) {
+                        line.posY = nextFixY;
+                        line.status = State.FIX;
+                        continue;
+                    }
+                    line.reset();
+                    finished = true;
+                    break;
+                case FINISH:
+                    break;
+            }
+        }
+        // ラインが画面外に出た場合、順番を変更
+        if (finished) {
+            Collections.rotate(mLines, -1);
+        }
+    }
+
+    /**
      * 総和変動数を算出する
      */
     private void calcResultCount() {
-        Line currentLine = mLines[mCurrentLineIndex];
-        Line beforeLine = getBeforeLine(mCurrentLineIndex - 1);
         for (int i = 0; i < DEFAULT_VALUE.LINE_BLOCK; i++) {
             // ブロックの数値の差分を算出
-            int result = (currentLine.blocks[i].number + 1) + (beforeLine.blocks[i].number + 1);
+            int result = (mLines.get(mCurrentLineIndex).blocks[i].number + 1) +
+                    (mLines.get(mCurrentLineIndex - 1).blocks[i].number + 1);
             // 差分から総和の基本となる数を減算
             mResultCount.resultCounts[i] = result - DEFAULT_VALUE.BASE_NUMBER;
         }
         mResultCount.isDraw = true;
-    }
-
-    /**
-     * 次のラインを取得する
-     * @param currentNum 現在の行番号
-     * @return 次のライン
-     */
-    private Line getNextLine(int currentNum) {
-        return mLines[(currentNum + 1) % (DEFAULT_VALUE.LINE_COUNT + 1)];
-    }
-
-    /**
-     * 前のラインを取得する
-     * @param currentNum 現在の行番号
-     * @return 前のライン
-     */
-    private Line getBeforeLine(int currentNum) {
-        return mLines[((DEFAULT_VALUE.LINE_COUNT) + currentNum) % (DEFAULT_VALUE.LINE_COUNT + 1)];
     }
 
     /**
@@ -174,7 +208,7 @@ public class LineTask extends GameTask {
         if (posX > MINUS_LEFT && posX < MINUS_RIGHT
                 && posY > CONTROL_TOP) {
             // ブロックの番号を減少
-            for (Block block : mLines[mCurrentLineIndex].blocks) {
+            for (Block block : mLines.get(mCurrentLineIndex).blocks) {
                 block.number--;
                 block.number = (block.number + DEFAULT_VALUE.BLOCK_NUMBER) % DEFAULT_VALUE.BLOCK_NUMBER;
             }
@@ -183,7 +217,7 @@ public class LineTask extends GameTask {
         else if (posX > PLUS_LEFT && posX < PLUS_RIGHT
                 && posY > CONTROL_TOP) {
             // ブロックの番号を増加
-            for (Block block : mLines[mCurrentLineIndex].blocks) {
+            for (Block block : mLines.get(mCurrentLineIndex).blocks) {
                 block.number++;
                 block.number %= DEFAULT_VALUE.BLOCK_NUMBER;
             }

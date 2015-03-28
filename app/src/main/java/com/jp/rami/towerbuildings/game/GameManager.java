@@ -7,8 +7,8 @@ import android.view.MotionEvent;
 
 import com.jp.rami.towerbuildings.game.allcount.AllCountTask;
 import com.jp.rami.towerbuildings.game.control.ControlTask;
-import com.jp.rami.towerbuildings.game.line.LineTask;
 import com.jp.rami.towerbuildings.game.fps.FpsCountTask;
+import com.jp.rami.towerbuildings.game.line.LineTask;
 import com.jp.rami.towerbuildings.game.main.MainTask;
 
 import java.util.LinkedList;
@@ -32,6 +32,7 @@ public class GameManager {
         mTaskList.add(new AllCountTask(context.getResources()));
         // 操作領域
         mTaskList.add(new ControlTask(context.getResources()));
+
     }
 
     /**
